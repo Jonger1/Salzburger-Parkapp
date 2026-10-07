@@ -1,0 +1,17 @@
+{
+  "name": "Salzburg Parken",
+  "short_name": "Parken",
+  "description": "Wo darf ich in Salzburg parken? Kurzparkzonen, Tickets und Erinnerungen.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#e5484d",
+  "lang": "de",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
