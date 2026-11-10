@@ -1,15 +1,18 @@
-import { ALTSTADT_ACCESS, RULE_SETS, tariffAt, type RuleSet, type TimeWindow, type Weekday, type WindowKind } from '../data/rules';
-import { CITY_POLYGON, COVERAGE_BOUNDS, ZONES, type Zone } from '../data/zones';
-import { pointInPolygon, type LatLng } from './geo';
+import { ALTSTADT_ACCESS, RULE_SETS, isoDate, tariffAt, type RuleSet, type TimeWindow, type Weekday, type WindowKind } from '../data/rules';
+import {
+  ALTSTADT_ACCESS_AREA, CITY_BBOX, COVERAGE_BOUNDS, DISTRICTS, PEDESTRIAN_LINES, PEDESTRIAN_RADIUS_M, PEDESTRIAN_ZONE,
+  RESIDENT_ZONES, ZONES, type Zone,
+} from '../data/zones';
+import { distanceToLineM, inBBox, pointInMultiPolygon, pointInRing, type LatLng } from './geo';
 import { isHoliday } from './holidays';
 
 export type Status =
   | WindowKind
   /** jetzt frei, ohne Zeitlimit */
   | 'free'
-  /** Regeln unbekannt – Beschilderung beachten */
+  /** keine Daten (Umland) – Beschilderung beachten */
   | 'check_signs'
-  /** keine Kurzparkzone erfasst */
+  /** Stadtgebiet, aber keine Kurzparkzone */
   | 'unregulated'
   /** außerhalb des Abdeckungsgebiets */
   | 'outside';
@@ -27,10 +30,11 @@ export interface Evaluation {
   status: Status;
   /** Status ohne Berücksichtigung persönlicher Ausnahmen */
   rawStatus: Status;
-  exempt?: 'disability';
+  exempt?: 'disability' | 'resident';
   /** Höchstparkdauer im aktuellen Zeitfenster */
   maxMinutes?: number;
-  /** Ende des aktuellen Zeitfensters */
+  /** Beginn und Ende des aktuellen Zeitfensters */
+  windowStart?: Date;
   windowEnd?: Date;
   /** Spätestens wegfahren (Höchstparkdauer), null wenn das Fenster vorher endet */
   deadline: Date | null;
@@ -38,9 +42,13 @@ export interface Evaluation {
   next?: { kind: WindowKind; at: Date; maxMinutes?: number };
   /** Euro je angefangene 30 Minuten */
   perHalfHour?: number;
-  /** Info-Ebenen, z. B. Altstadt-Zufahrt */
-  overlays: Zone[];
+  /** Sommer-Zufahrtsbeschränkung Altstadt ist an diesem Ort und Tag aktiv */
+  altstadtAccess: boolean;
   inCity: boolean;
+  /** Stadtteil, falls im Stadtgebiet */
+  district?: string;
+  /** Bewohnerparkzone, in der der Punkt liegt */
+  residentZone?: string;
 }
 
 export function dayType(d: Date): Weekday {
@@ -82,8 +90,28 @@ export function nextWindowStart(rs: RuleSet, after: Date): { window: TimeWindow;
   return undefined;
 }
 
-export function zonesAt(point: LatLng): Zone[] {
-  return ZONES.filter((z) => pointInPolygon(point, z.polygon)).sort((a, b) => b.priority - a.priority);
+export function inPedestrianZone(point: LatLng): boolean {
+  const margin = 0.0002; // ≈ 20 m
+  if (!inBBox(point, PEDESTRIAN_ZONE.bbox, margin)) return false;
+  return PEDESTRIAN_LINES.some((l) => inBBox(point, l.bbox, margin) && distanceToLineM(point, l.line) <= PEDESTRIAN_RADIUS_M);
+}
+
+/** Kurzparkzone am Punkt (Fußgängerzone hat Vorrang), gültig am Datum `at` */
+export function zoneAt(point: LatLng, at: Date = new Date()): Zone | null {
+  if (inPedestrianZone(point)) return PEDESTRIAN_ZONE;
+  const iso = isoDate(at);
+  return (
+    ZONES.find((z) => (!z.validFrom || z.validFrom <= iso) && inBBox(point, z.bbox) && pointInMultiPolygon(point, z.polygons)) ?? null
+  );
+}
+
+export function residentZoneAt(point: LatLng): string | undefined {
+  return RESIDENT_ZONES.find((r) => inBBox(point, r.bbox) && pointInMultiPolygon(point, r.polygons))?.name;
+}
+
+export function districtAt(point: LatLng): string | undefined {
+  if (!inBBox(point, CITY_BBOX)) return undefined;
+  return DISTRICTS.find((d) => inBBox(point, d.bbox) && pointInMultiPolygon(point, d.polygons))?.name;
 }
 
 export function isAltstadtAccessActive(at: Date): boolean {
@@ -96,31 +124,36 @@ export function inCoverage([lat, lng]: LatLng): boolean {
   return lat >= b.south && lat <= b.north && lng >= b.west && lng <= b.east;
 }
 
+/** Gilt die Bewohnerparkkarte des Profils an diesem Punkt in dieser Zone? */
+function residentExempt(zone: Zone, rs: RuleSet, residentZone: string | undefined, profile?: Partial<Profile>): boolean {
+  if (!profile?.residentPermit || !profile.residentZone || !rs.residentExempt || zone.noResident) return false;
+  return zone.group === profile.residentZone || residentZone === profile.residentZone;
+}
+
 export function evaluate(point: LatLng, at: Date, profile?: Partial<Profile>): Evaluation {
-  const zones = zonesAt(point);
-  const overlays = zones.filter((z) => z.kind === 'altstadt_access' && isAltstadtAccessActive(at));
-  const zone = zones.find((z) => z.ruleSet) ?? null;
-  const inCity = pointInPolygon(point, CITY_POLYGON);
-  const base = { at, overlays, inCity, deadline: null } as const;
+  const zone = zoneAt(point, at);
+  const district = districtAt(point);
+  const inCity = district !== undefined;
+  const residentZone = inCity ? residentZoneAt(point) : undefined;
+  const altstadtAccess = isAltstadtAccessActive(at) && pointInRing(point, ALTSTADT_ACCESS_AREA);
+  const base = { at, altstadtAccess, inCity, district, residentZone, deadline: null } as const;
 
   if (!zone) {
-    const status: Status = inCoverage(point) ? 'unregulated' : 'outside';
+    const status: Status = inCity ? 'unregulated' : inCoverage(point) ? 'check_signs' : 'outside';
     return { ...base, zone: null, ruleSet: null, status, rawStatus: status };
   }
 
-  const rs = RULE_SETS[zone.ruleSet!];
-  if (rs.unverified) {
-    return { ...base, zone, ruleSet: rs, status: 'check_signs', rawStatus: 'check_signs' };
-  }
-
+  const rs = RULE_SETS[zone.ruleSet];
   const win = currentWindow(rs, at);
   let rawStatus: Status;
+  let windowStart: Date | undefined;
   let windowEnd: Date | undefined;
   let deadline: Date | null = null;
   let maxMinutes: number | undefined;
 
   if (win) {
     rawStatus = win.kind;
+    windowStart = atTime(at, win.from);
     windowEnd = win.to === '24:00' ? atTime(new Date(at.getFullYear(), at.getMonth(), at.getDate() + 1), '00:00') : atTime(at, win.to);
     maxMinutes = win.maxMinutes;
     if (maxMinutes) {
@@ -136,13 +169,15 @@ export function evaluate(point: LatLng, at: Date, profile?: Partial<Profile>): E
 
   let status = rawStatus;
   let exempt: Evaluation['exempt'];
-  if (profile?.disabilityPermit && rs.disabilityExempt && (rawStatus === 'pay' || rawStatus === 'disc')) {
-    status = 'free';
-    exempt = 'disability';
-    deadline = null;
+  if (rawStatus === 'pay' || rawStatus === 'disc') {
+    if (profile?.disabilityPermit && rs.disabilityExempt) exempt = 'disability';
+    else if (residentExempt(zone, rs, residentZone, profile)) exempt = 'resident';
+    if (exempt) {
+      status = 'free';
+      deadline = null;
+    }
   }
 
-  const tariff = tariffAt(rs, at);
   return {
     ...base,
     zone,
@@ -151,23 +186,29 @@ export function evaluate(point: LatLng, at: Date, profile?: Partial<Profile>): E
     rawStatus,
     exempt,
     maxMinutes,
+    windowStart,
     windowEnd,
     deadline,
     next,
-    perHalfHour: tariff?.perHalfHour,
+    perHalfHour: tariffAt(rs, at)?.perHalfHour,
   };
+}
+
+/** Ist das Profil in dieser Zone dauerhaft von Gebühr und Höchstdauer befreit? */
+export function isExemptIn(point: LatLng, zone: Zone, profile?: Partial<Profile>): boolean {
+  const rs = RULE_SETS[zone.ruleSet];
+  if (profile?.disabilityPermit && rs.disabilityExempt) return true;
+  return residentExempt(zone, rs, residentZoneAt(point), profile);
 }
 
 /** Parkgebühr in Euro für `minutes` Minuten ab `start`, nur die gebührenpflichtigen Anteile */
 export function estimateCost(rs: RuleSet, start: Date, minutes: number): number {
   let paidMinutes = 0;
   let perHalfHour = 0;
-  const step = 1;
-  for (let m = 0; m < minutes; m += step) {
+  for (let m = 0; m < minutes; m++) {
     const t = new Date(start.getTime() + m * 60000);
-    const w = currentWindow(rs, t);
-    if (w?.kind === 'pay') {
-      paidMinutes += step;
+    if (currentWindow(rs, t)?.kind === 'pay') {
+      paidMinutes++;
       perHalfHour = tariffAt(rs, t)?.perHalfHour ?? perHalfHour;
     }
   }

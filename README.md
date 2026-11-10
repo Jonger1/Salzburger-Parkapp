@@ -2,30 +2,41 @@
 
 Web-App (PWA) für iPhone und Android: Wo darf ich in Salzburg parken? Wo gilt eine Kurzparkzone, wann muss ich ein Ticket lösen und wann läuft meine Parkzeit ab? Mit Benachrichtigungen.
 
-> ⚠️ **Ohne Gewähr.** Die Zonengrenzen sind von Hand gezeichnete **Näherungen** nach den öffentlichen Plänen der Stadt Salzburg. Bitte gegen den [offiziellen Plan](https://www.stadt-salzburg.at/kurzparkzone) prüfen. Vor Ort gilt immer die Beschilderung.
+> ⚠️ **Ohne Gewähr.** Die Zonen stammen aus den offenen Geodaten der Stadt Salzburg (siehe [Datenquellen](#datenquellen)). Vor Ort gilt immer die Beschilderung: Auch in einer Kurzparkzone gibt es Halte- und Parkverbote oder Ladezonen.
 
 ## Funktionen
 
 - **Jetzt:** Regeln am aktuellen Standort, z. B. „Ticket nötig“, „Parkscheibe nötig“, „Frei“ oder „Parken verboten“. Dazu Höchstparkdauer, Uhrzeit fürs spätestens Wegfahren, Tarif, Kosten und die nächste Änderung (z. B. „Ticket nötig ab morgen 09:00“). Außerdem eine Wochenübersicht und eine Prüfung für beliebige Zeitpunkte.
 - **Ich parke hier:** speichert den Parkplatz. Du kannst die Ticketdauer eintragen (30–180 Min. oder eigene), siehst einen Countdown und bekommst Erinnerungen vor dem Ablauf (frei einstellbar), beim Ablauf und bevor die Gebührenpflicht beginnt. Navigation zum Auto per Google oder Apple Maps, Notizfeld, Kalender-Export (.ics).
 - **Bezahlen:** Link zu EasyPark (Handyparken) und Hinweise für den Automaten. Die bevorzugte Zahlungsart ist einstellbar.
-- **Karte:** farbige Zonen (gebührenpflichtig, gebührenfrei, Fußgängerzone, Altstadt-Zufahrt im Sommer, Umland), Parkgaragen und P+R mit Preisen. Tippe auf einen Punkt, um zu sehen, was dort gilt.
+- **Karte:** die offiziellen Flächen der Kurzparkzonen (dunkelblau = gebührenpflichtig, hellblau = gratis mit Parkscheibe, wie im Stadtplan der Stadt), Fußgängerzonen, Bewohnerparkzonen zum Einblenden, Parkscheinautomaten, Garagen und P+R mit **Live-Belegung**. Tippe auf einen Punkt, um zu sehen, was dort gilt.
+- **Nächster Parkscheinautomat** mit Entfernung und Fußweg, wenn ein Ticket nötig ist.
 - **Fahrmodus / automatische Erkennung:** erkennt, wenn du nach einer Fahrt stehen bleibst, und zeigt die Regeln an. Optional startet er den Parkvorgang automatisch, meldet Zonenwechsel beim Einfahren und hält den Bildschirm an.
-- **Ausnahmen:** Bewohnerparkkarte (mit Zone und Link zum Zonenplan) und § 29b-Ausweis.
+- **Ausnahmen:** Bewohnerparkkarte (Zonen 3, 21, A–K): Die App erkennt, ob der Standort in deiner Zone liegt, und zeigt dort „Frei parken“. § 29b-Ausweis: befreit, und die Karte zeigt barrierefreie Parkplätze.
 - **Verlauf** aller Parkvorgänge mit Adresse (über OpenStreetMap Nominatim).
 - **Deutsch und Englisch**, Hell- und Dunkelmodus, offline nutzbar, auf dem Homescreen installierbar.
 
-### Hinterlegte Regeln (Stand Oktober 2026)
+### Hinterlegte Regeln (Stand November 2026)
 
 | Zone | Regel |
 |---|---|
-| Gebührenpflichtige Kurzparkzone (Innenstadt) | Mo–Fr 9–19 Uhr, max. 3 h, 1,10 € je angefangene 30 Min. (ab 1.1.2027 1,25 €). Sa 9–16 Uhr gratis mit Parkuhr, max. 3 h. So und Feiertage frei. |
-| Gebührenfreie Kurzparkzone (Maxglan, Lehen/Liefering, Parsch/Aigen) | Mo–Fr 9–19 Uhr mit Parkscheibe, max. 3 h |
-| Fußgängerzonen (Altstadt, Linzer Gasse) | Parkverbot |
-| Altstadt-Zufahrt | 1.7.–31.8. für Tagesgäste gesperrt (Hinweis) |
-| Umland (Hallein, Seekirchen, Oberndorf) | nur markiert, Regeln nicht geprüft → „Beschilderung beachten“ |
+| Gebührenpflichtige Kurzparkzone | Mo–Fr 9–19 Uhr, max. 3 h, 1,10 € je angefangene 30 Min. (ab 1.1.2027 1,25 €). Sa 9–16 Uhr gratis mit Parkscheibe, max. 3 h. So und Feiertage frei. |
+| Gebührenfreie Kurzparkzone | Mo–Fr 9–19 Uhr mit Parkscheibe, max. 3 h. In einzelnen Zonen (z. B. Nonntal) zusätzlich Sa 9–16 Uhr. |
+| Fußgängerzonen | Parkverbot (erkannt bis ca. 8 m neben der Straßenachse) |
+| Stadtgebiet ohne Kurzparkzone | „Keine Kurzparkzone“, Beschilderung beachten |
+| Umland | keine offenen Daten → nur der Hinweis „Beschilderung beachten“ |
 
-Die österreichischen Feiertage werden automatisch berechnet, auch Ostern und die davon abhängigen Feiertage.
+Welche Regel in welcher Zone gilt, steht in den Daten der Stadt und wird beim Aktualisieren übernommen. Die österreichischen Feiertage werden automatisch berechnet, auch Ostern und die davon abhängigen Feiertage.
+
+Wer vor Beginn der Kurzparkzeit parkt oder über Nacht stehen bleibt, bekommt die Höchstparkdauer ab Beginn der Kurzparkzeit gerechnet und wird rechtzeitig vorher erinnert.
+
+## Datenquellen
+
+- **Zonen, Automaten, Garagen, Stadtteile:** Stadt Salzburg, [data.stadt-salzburg.at](https://data.stadt-salzburg.at/) (CC BY 4.0), abgerufen über den Kartendienst von [maps.stadt-salzburg.at](https://maps.stadt-salzburg.at). Die aufbereiteten Dateien liegen in `src/data/geo/`.
+- **Aktualisieren:** `npm run update-geodata` lädt den aktuellen Stand und schreibt die Dateien neu. Das Skript bricht ab, wenn die Stadt eine Regelbeschreibung liefert, die die App noch nicht kennt. In einer Umgebung mit Proxy: `NODE_USE_ENV_PROXY=1 npm run update-geodata`.
+- **Live-Belegung der Garagen:** wird in der App direkt beim Kartendienst der Stadt abgefragt.
+- **Altstadt-Zufahrt im Sommer:** Dazu gibt es keine Geodaten. Die Fläche ist nur grob eingezeichnet, der Text ist ein Hinweis auf die Regelung von Sommer 2026.
+- **Tarife und Zeiten:** [stadt-salzburg.at/kurzparkzone](https://www.stadt-salzburg.at/kurzparkzone); Tarif ab 2027 laut Gemeinderatsbeschluss vom 16.9.2026.
 
 ## Wichtige Einschränkungen von Web-Apps
 
@@ -58,18 +69,17 @@ Vercel-Cronjobs laufen im kostenlosen Plan nur einmal täglich. Für zeitgenaue 
 ```bash
 npm install
 npm run dev        # Entwicklungsserver
-npm test           # Tests (Regeln, Feiertage, Parkerkennung)
+npm test           # Tests (Regeln, Zonen, Erinnerungen, Parkerkennung, Server)
+npm run check      # Typprüfung, Übersetzungen und Tests
 npm run build      # Produktions-Build
 ```
 
 ## Daten anpassen
 
-- **Zonen:** `src/data/zones.ts`. Polygone als `[Breite, Länge]`; bei Überlappung gewinnt die höhere `priority`.
+- **Zonen, Automaten, Garagen:** nicht von Hand ändern, sondern mit `npm run update-geodata` neu laden (`scripts/update-geodata.mjs`).
 - **Regeln, Zeiten, Tarife:** `src/data/rules.ts`
-- **Garagen und P+R:** `src/data/places.ts`
+- **Preise der Garagen und P+R:** `src/data/places.ts`
 - **Texte und Übersetzungen:** `src/lib/i18n.ts`
-
-Wenn du eine Zonengrenze korrigierst, reicht es, die Koordinaten im Polygon anzupassen. Koordinaten bekommst du z. B. per Rechtsklick in Google Maps oder auf openstreetmap.org.
 
 ## Technik
 

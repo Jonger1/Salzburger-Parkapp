@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Lang } from './i18n';
 import type { Status } from './evaluate';
-import type { WindowKind } from '../data/rules';
 
 export interface Settings {
   lang: Lang;
@@ -23,6 +22,8 @@ export interface Settings {
   disabilityPermit: boolean;
   payment: 'ask' | 'easypark' | 'automat';
   showPlaces: boolean;
+  showMachines: boolean;
+  showResidentZones: boolean;
 }
 
 const browserLang: Lang = typeof navigator !== 'undefined' && !navigator.language?.startsWith('de') ? 'en' : 'de';
@@ -47,6 +48,8 @@ export const DEFAULT_SETTINGS: Settings = {
   disabilityPermit: false,
   payment: 'ask',
   showPlaces: true,
+  showMachines: true,
+  showResidentZones: false,
 };
 
 export interface Session {
@@ -57,14 +60,8 @@ export interface Session {
   endedAt?: number;
   zoneId?: string;
   zoneName?: string;
+  /** Status zum Zeitpunkt des Abstellens (für den Verlauf) */
   status: Status;
-  /** Ende der Höchstparkdauer zum Parkbeginn */
-  maxDeadline?: number | null;
-  /** Ende des Zeitfensters zum Parkbeginn */
-  windowEnd?: number;
-  /** nächstes reguliertes Fenster */
-  nextAt?: number;
-  nextKind?: WindowKind;
   /** vom User eingegeben: Ticket gültig bis */
   ticketUntil?: number;
   note?: string;
@@ -102,7 +99,13 @@ export function useStored<T>(key: string, fallback: T): [T, (v: T | ((prev: T) =
     const fn = () => setValue(read(key, fallback));
     if (!listeners.has(key)) listeners.set(key, new Set());
     listeners.get(key)!.add(fn);
-    return () => void listeners.get(key)!.delete(fn);
+    // Änderungen aus anderen Tabs/Fenstern übernehmen
+    const onStorage = (e: StorageEvent) => (e.key === key || e.key === null) && fn();
+    window.addEventListener('storage', onStorage);
+    return () => {
+      listeners.get(key)!.delete(fn);
+      window.removeEventListener('storage', onStorage);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
   const set = useCallback(

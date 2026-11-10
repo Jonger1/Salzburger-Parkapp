@@ -1,36 +1,42 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { Client } from '@upstash/qstash';
-import { isReminder, isSubscription } from './_lib.js';
+import { isReminder, isSubscription, json, readJson } from './_lib.js';
 
 const MAX_DELAY_MS = 7 * 24 * 3600 * 1000;
 
 // Plant Push-Erinnerungen über Upstash QStash (verzögerte Zustellung an /api/send).
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== 'POST') return res.status(405).end();
+async function handle(request: Request): Promise<Response> {
   const token = process.env.QSTASH_TOKEN;
-  if (!token) return res.status(501).json({ error: 'QSTASH_TOKEN not configured' });
+  if (!token) return json({ error: 'QSTASH_TOKEN not configured' }, 501);
 
-  const { subscription, reminders } = (req.body ?? {}) as { subscription?: unknown; reminders?: unknown };
+  const body = await readJson(request);
+  const { subscription, reminders } = (body?.data ?? {}) as { subscription?: unknown; reminders?: unknown };
   if (!isSubscription(subscription) || !Array.isArray(reminders) || reminders.length > 10 || !reminders.every(isReminder)) {
-    return res.status(400).json({ error: 'invalid payload' });
+    return json({ error: 'invalid payload' }, 400);
   }
 
-  const proto = (req.headers['x-forwarded-proto'] as string) || 'https';
-  const host = req.headers['x-forwarded-host'] || req.headers.host;
-  const target = `${proto}://${host}/api/send`;
+  // Ziel ist immer dieses Deployment selbst, nie eine Adresse aus der Anfrage
+  const target = new URL('/api/send', request.url);
+  target.protocol = 'https:';
   const client = new Client({ token });
   const now = Date.now();
 
   const ids: string[] = [];
   for (const r of reminders) {
-    if (r.at - now > MAX_DELAY_MS) continue;
+    if (r.at - now > MAX_DELAY_MS || r.at < now - 60000) continue;
     const { messageId } = await client.publishJSON({
-      url: target,
+      url: target.toString(),
       body: { subscription, notification: { title: r.title, body: r.body, tag: r.tag } },
       notBefore: Math.max(Math.floor(now / 1000), Math.floor(r.at / 1000)),
       retries: 2,
     });
     ids.push(messageId);
   }
-  return res.status(200).json({ ids });
+  return json({ ids });
 }
+
+export default {
+  fetch(request: Request): Response | Promise<Response> {
+    if (request.method !== 'POST') return json({ error: 'method not allowed' }, 405);
+    return handle(request);
+  },
+};

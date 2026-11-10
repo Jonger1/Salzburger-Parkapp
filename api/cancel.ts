@@ -1,16 +1,23 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { Client } from '@upstash/qstash';
+import { json, readJson } from './_lib.js';
 
 // Storniert geplante Erinnerungen (z. B. wenn das Parken beendet wurde).
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== 'POST') return res.status(405).end();
+async function handle(request: Request): Promise<Response> {
   const token = process.env.QSTASH_TOKEN;
-  if (!token) return res.status(501).json({ error: 'QSTASH_TOKEN not configured' });
-  const { ids } = (req.body ?? {}) as { ids?: unknown };
+  if (!token) return json({ error: 'QSTASH_TOKEN not configured' }, 501);
+  const body = await readJson(request);
+  const { ids } = (body?.data ?? {}) as { ids?: unknown };
   if (!Array.isArray(ids) || ids.length > 20 || !ids.every((x) => typeof x === 'string' && /^[\w-]{1,100}$/.test(x))) {
-    return res.status(400).json({ error: 'invalid payload' });
+    return json({ error: 'invalid payload' }, 400);
   }
   const client = new Client({ token });
-  await Promise.all(ids.map((id) => client.messages.delete(id).catch(() => undefined)));
-  return res.status(200).json({ ok: true });
+  await Promise.all(ids.map((id: string) => client.messages.delete(id).catch(() => undefined)));
+  return json({ ok: true });
 }
+
+export default {
+  fetch(request: Request): Response | Promise<Response> {
+    if (request.method !== 'POST') return json({ error: 'method not allowed' }, 405);
+    return handle(request);
+  },
+};

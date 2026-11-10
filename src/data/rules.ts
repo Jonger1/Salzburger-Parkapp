@@ -1,6 +1,7 @@
 // Regelwerke (Rule Sets) für die Zonen.
-// Quellen (Stand Okt. 2026): stadt-salzburg.at/kurzparkzone, Gemeinderatsbeschluss 16.9.2026
-// (Tarif ab 1.1.2027), Presseaussendungen der Stadt zu den gebührenfreien Kurzparkzonen.
+// Quellen (Stand Nov. 2026): stadt-salzburg.at/kurzparkzone, Feld GEBUEHRENPFLICHT im
+// Kurzparkzonen-Layer der Stadt (siehe scripts/update-geodata.mjs),
+// Gemeinderatsbeschluss 16.9.2026 (Tarif ab 1.1.2027).
 // Alles ohne Gewähr – vor Ort gilt immer die Beschilderung.
 
 /** 0 = Sonntag/Feiertag, 1 = Montag … 6 = Samstag */
@@ -40,8 +41,6 @@ export interface RuleSet {
   tariffs?: Tariff[];
   /** Außerhalb der Fenster: frei parken (true) oder Beschilderung prüfen (false) */
   freeOutsideWindows: boolean;
-  /** true = Regeln nicht verifiziert, nur Hinweis „Beschilderung beachten“ */
-  unverified?: boolean;
   /** Bewohnerparkkarte befreit (innerhalb der eigenen Bewohnerzone) */
   residentExempt?: boolean;
   /** § 29b-Ausweis befreit von Gebühr und Höchstdauer */
@@ -74,19 +73,23 @@ export const RULE_SETS: Record<string, RuleSet> = {
     residentExempt: true,
     disabilityExempt: true,
   },
+  // z. B. Nonntal: Parkscheibe auch am Samstag
+  sbg_free_sat: {
+    id: 'sbg_free_sat',
+    labelKey: 'rule.sbg_free_sat',
+    windows: [
+      { days: WEEKDAYS, from: '09:00', to: '19:00', kind: 'disc', maxMinutes: 180 },
+      { days: [6], from: '09:00', to: '16:00', kind: 'disc', maxMinutes: 180 },
+    ],
+    freeOutsideWindows: true,
+    residentExempt: true,
+    disabilityExempt: true,
+  },
   pedestrian: {
     id: 'pedestrian',
     labelKey: 'rule.pedestrian',
     windows: [{ days: [0, 1, 2, 3, 4, 5, 6], from: '00:00', to: '24:00', kind: 'no_parking' }],
     freeOutsideWindows: false,
-  },
-  municipal: {
-    id: 'municipal',
-    labelKey: 'rule.municipal',
-    windows: [],
-    freeOutsideWindows: false,
-    unverified: true,
-    disabilityExempt: true,
   },
 };
 

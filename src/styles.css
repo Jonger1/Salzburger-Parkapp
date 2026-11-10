@@ -56,11 +56,11 @@ h3 { font-size: 16px; margin: 0 0 8px; }
 p { margin: 0 0 8px; }
 a { color: var(--accent); text-decoration: none; }
 button { font: inherit; color: inherit; cursor: pointer; }
-input {
+input, select {
   font: inherit; color: var(--text); background: var(--surface-2);
   border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; width: 100%;
 }
-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 .app { display: flex; flex-direction: column; height: 100%; }
 .topbar {
@@ -152,7 +152,8 @@ input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .schedule { display: flex; flex-direction: column; }
 .schedule-row { display: flex; gap: 12px; padding: 7px 0; border-top: 1px solid var(--border); align-items: center; }
 .schedule-day { width: 92px; flex-shrink: 0; color: var(--muted); font-size: 14px; }
-.schedule-val { display: flex; flex-wrap: wrap; gap: 6px; }
+.schedule-val { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.schedule-val .pill { white-space: normal; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
 .chip {
@@ -221,10 +222,8 @@ input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .swatch { width: 18px; height: 12px; border-radius: 4px; flex-shrink: 0; }
 .swatch.round { width: 14px; height: 14px; border-radius: 50%; }
 .map-hint {
-  position: absolute; left: 50%; transform: translateX(-50%); z-index: 500;
-  bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 16px);
-  background: var(--surface); padding: 8px 14px; border-radius: 999px; font-size: 13px; box-shadow: var(--shadow);
-  white-space: nowrap; max-width: calc(100% - 32px); overflow: hidden; text-overflow: ellipsis;
+  position: absolute; top: 12px; left: 12px; z-index: 500; max-width: calc(100% - 80px);
+  background: var(--surface); padding: 8px 14px; border-radius: 14px; font-size: 13px; box-shadow: var(--shadow);
 }
 .sheet {
   position: absolute; left: 0; right: 0; z-index: 1001; max-height: 60%; overflow-y: auto;
@@ -254,3 +253,15 @@ input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 }
 
 .warn-text { color: var(--c-warn); font-weight: 600; }
+
+.swatch.line { height: 4px; border-radius: 2px; }
+.fab:disabled { opacity: 0.45; }
+.zone-label {
+  background: none; border: 0; box-shadow: none; padding: 0;
+  font-weight: 800; font-size: 15px; color: #15803d; text-shadow: 0 0 3px #fff, 0 0 3px #fff;
+}
+.zone-label::before { display: none; }
+
+.leaflet-container .leaflet-control-attribution { font-size: 11px; }
+.map.zoomed-out .place-icon span { transform: scale(0.7); }
+.status-zone, .row-value { overflow-wrap: anywhere; }

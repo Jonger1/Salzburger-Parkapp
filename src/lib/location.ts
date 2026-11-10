@@ -31,7 +31,7 @@ export function useLocation(active = true) {
         setFix(toFix(p));
         setError(null);
       },
-      (e) => setError(e.message || 'error'),
+      (e) => setError(e.code === e.PERMISSION_DENIED ? 'denied' : e.code === e.TIMEOUT ? 'timeout' : 'unavailable'),
       { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 },
     );
     return () => navigator.geolocation.clearWatch(id);
@@ -45,13 +45,21 @@ export interface DetectorOptions {
   onFix?: (fix: Fix, speedKmh: number) => void;
 }
 
+/** Schlechtere Messungen werden für die Parkerkennung ignoriert */
+const MAX_ACCURACY_M = 50;
+const DRIVE_KMH = 15;
+/** So viele schnelle Messungen in Folge gelten als Fahrt (einzelne GPS-Sprünge nicht) */
+const DRIVE_FIXES = 3;
+const STOP_RADIUS_M = 40;
+
 /**
- * Parkerkennung: Nach einer Fahrt (> 15 km/h) und anschließendem Stillstand
+ * Parkerkennung: Nach einer Fahrt (mehrere Messungen > 15 km/h) und anschließendem Stillstand
  * (< 40 m Bewegung) über `stopMinutes` wird `onPark` ausgelöst.
  */
 export class ParkingDetector {
   private watchId: number | null = null;
   private last: Fix | null = null;
+  private fastCount = 0;
   private hasDriven = false;
   private anchor: Fix | null = null;
   private opts: DetectorOptions;
@@ -78,27 +86,39 @@ export class ParkingDetector {
     this.watchId = null;
     this.last = null;
     this.anchor = null;
+    this.fastCount = 0;
     this.hasDriven = false;
   }
 
   /** öffentlich für Tests */
   handle(fix: Fix) {
-    let speed = fix.speed ?? null;
-    if ((speed === null || Number.isNaN(speed)) && this.last) {
-      const dt = (fix.time - this.last.time) / 1000;
-      speed = dt > 0 ? distanceM(this.last.point, fix.point) / dt : 0;
+    if (fix.accuracy > MAX_ACCURACY_M) {
+      this.opts.onFix?.(fix, 0);
+      return;
     }
-    const kmh = (speed ?? 0) * 3.6;
+    let speed = fix.speed;
+    if (speed === null || Number.isNaN(speed)) {
+      speed = 0;
+      if (this.last) {
+        const dt = (fix.time - this.last.time) / 1000;
+        const moved = distanceM(this.last.point, fix.point);
+        // Bewegung innerhalb der Messungenauigkeit ist keine Bewegung
+        if (dt >= 1 && moved > fix.accuracy + this.last.accuracy) speed = moved / dt;
+      }
+    }
+    const kmh = speed * 3.6;
     this.last = fix;
     this.opts.onFix?.(fix, kmh);
 
-    if (kmh > 15) {
-      this.hasDriven = true;
+    if (kmh > DRIVE_KMH) {
+      this.fastCount++;
+      if (this.fastCount >= DRIVE_FIXES) this.hasDriven = true;
       this.anchor = null;
       return;
     }
+    this.fastCount = 0;
     if (!this.hasDriven) return;
-    if (!this.anchor || distanceM(this.anchor.point, fix.point) > 40) {
+    if (!this.anchor || distanceM(this.anchor.point, fix.point) > STOP_RADIUS_M) {
       this.anchor = fix;
       return;
     }

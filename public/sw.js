@@ -1,5 +1,5 @@
 // Service Worker: Offline-Cache, Push-Empfang, Klick auf Benachrichtigung
-const CACHE = 'parken-v1';
+const CACHE = 'parken-v2';
 const SHELL = ['/', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/badge.png'];
 
 self.addEventListener('install', (event) => {

@@ -1,14 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../AppContext';
 import type { RuleSet, Weekday } from '../data/rules';
+import { DATA_DATE } from '../data/zones';
+import { nearestMachine } from '../data/places';
 import { estimateCost, evaluate, type Evaluation } from '../lib/evaluate';
-import { formatMoney, formatTime, formatWhen } from '../lib/i18n';
+import type { LatLng } from '../lib/geo';
+import { formatDate, formatMoney, formatTime, formatWhen } from '../lib/i18n';
+import { notificationsSupported, requestPermission } from '../lib/notify';
+import { useSession } from '../lib/store';
 import { Card, Icon, Row, STATUS_COLOR } from './ui';
 import { PaymentOptions } from './PaymentOptions';
 import { SessionCard } from './SessionCard';
 import { DriveCard } from './DriveCard';
-import { useSession } from '../lib/store';
-import { notificationsSupported, requestPermission } from '../lib/notify';
 
 function useNow(intervalMs = 30000) {
   const [now, setNow] = useState(() => new Date());
@@ -24,18 +27,24 @@ function toLocalInput(d: Date) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
+const isStandalone = () =>
+  window.matchMedia('(display-mode: standalone)').matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
+const isIos = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
 export function NowView() {
-  const { t, lang, fix, locError, retryLocation, picked, setPicked, settings, updateSettings, startParking } = useApp();
+  const { t, lang, fix, locError, retryLocation, picked, setPicked, settings, updateSettings, profile, startParking } = useApp();
   const [session] = useSession();
   const now = useNow();
   const [customTime, setCustomTime] = useState<string>('');
   const point = picked ?? fix?.point ?? null;
-  const at = customTime ? new Date(customTime) : now;
-  const profile = { disabilityPermit: settings.disabilityPermit, residentPermit: settings.residentPermit, residentZone: settings.residentZone };
-  const ev = useMemo(() => (point ? evaluate(point, at, profile) : null), [point?.[0], point?.[1], at.getTime(), settings.disabilityPermit]); // eslint-disable-line react-hooks/exhaustive-deps
+  const custom = customTime ? new Date(customTime) : null;
+  const at = custom && !Number.isNaN(custom.getTime()) ? custom : now;
+  const ev = useMemo(() => (point ? evaluate(point, at, profile) : null), [point?.[0], point?.[1], at.getTime(), profile]); // eslint-disable-line react-hooks/exhaustive-deps
+  const needsAction = ev && (ev.status === 'pay' || ev.status === 'disc');
 
   return (
     <div className="view">
+      {!notificationsSupported() && isIos() && !isStandalone() && <div className="banner">{t('now.installIos')}</div>}
       {!settings.notifications && notificationsSupported() && Notification.permission !== 'denied' && (
         <div className="banner">
           <span>{t('now.enableNotif')}</span>
@@ -65,18 +74,16 @@ export function NowView() {
         </Card>
       )}
 
-      {ev && (
+      {ev && point && (
         <>
-          <StatusCard ev={ev} customTime={Boolean(customTime)} />
-          {!customTime && !session && ev.status !== 'outside' && (
-            <button className="btn primary big" onClick={() => startParking(point!)}>
+          <StatusCard ev={ev} point={point} customTime={Boolean(customTime)} />
+          {!customTime && !session && ev.status !== 'outside' && ev.status !== 'no_parking' && (
+            <button className="btn primary big" onClick={() => startParking(point)}>
               <Icon name="car" /> {t('now.parkHere')}
             </button>
           )}
-          {(ev.rawStatus === 'pay' || ev.rawStatus === 'disc' || ev.next) && !session && (
-            <PaymentOptions kind={ev.rawStatus === 'disc' || (ev.rawStatus !== 'pay' && ev.next?.kind === 'disc') ? 'disc' : 'pay'} />
-          )}
-          {ev.ruleSet && ev.ruleSet.windows.length > 0 && <ScheduleCard rs={ev.ruleSet} />}
+          {needsAction && !session && <PaymentOptions kind={ev.status === 'disc' ? 'disc' : 'pay'} />}
+          {ev.ruleSet && ev.zone?.kind !== 'pedestrian' && <ScheduleCard rs={ev.ruleSet} />}
         </>
       )}
 
@@ -88,23 +95,50 @@ export function NowView() {
             <input type="datetime-local" value={customTime || toLocalInput(now)} onChange={(e) => setCustomTime(e.target.value)} />
             {customTime && (
               <button className="btn ghost" onClick={() => setCustomTime('')}>
-                {lang === 'de' ? 'Jetzt' : 'Now'}
+                {t('now.resetTime')}
               </button>
             )}
           </div>
         </Card>
       )}
-      {fix && !picked && <p className="muted small center">{t('now.accuracy', { m: Math.round(fix.accuracy) })}</p>}
+      {fix && !picked && fix.accuracy > 30 && <p className="small center warn-text">{t('now.lowAccuracy', { m: Math.round(fix.accuracy) })}</p>}
+      {fix && !picked && fix.accuracy <= 30 && <p className="muted small center">{t('now.accuracy', { m: Math.round(fix.accuracy) })}</p>}
+      <p className="muted small center">{t('now.dataDate', { date: formatDate(lang, DATA_DATE) })}</p>
     </div>
   );
 }
 
-export function StatusCard({ ev, customTime, compact }: { ev: Evaluation; customTime?: boolean; compact?: boolean }) {
+function MachineHint({ point }: { point: LatLng }) {
+  const { t } = useApp();
+  const near = useMemo(() => nearestMachine(point), [point[0], point[1]]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!near) return null;
+  const href = `https://www.google.com/maps/dir/?api=1&destination=${near.machine.pos[0]},${near.machine.pos[1]}&travelmode=walking`;
+  return (
+    <Row
+      label={t('now.machine')}
+      value={
+        <a href={href} target="_blank" rel="noreferrer">
+          {near.machine.name} · {Math.max(10, Math.round(near.distance / 10) * 10)} m
+        </a>
+      }
+    />
+  );
+}
+
+export function StatusCard({ ev, point, customTime, compact }: { ev: Evaluation; point: LatLng; customTime?: boolean; compact?: boolean }) {
   const { t, lang, settings } = useApp();
   const color = STATUS_COLOR[ev.status];
   const halfStr = ev.perHalfHour !== undefined ? formatMoney(lang, ev.perHalfHour) : '';
   const hourStr = ev.perHalfHour !== undefined ? formatMoney(lang, ev.perHalfHour * 2) : '';
-  const maxCost = ev.ruleSet && ev.rawStatus === 'pay' && ev.maxMinutes ? estimateCost(ev.ruleSet, ev.at, ev.maxMinutes) : null;
+  // Kosten bis zur Höchstparkdauer, höchstens aber bis zum Ende der Gebührenpflicht
+  const payMinutes =
+    ev.status === 'pay' && ev.maxMinutes && ev.windowEnd ? Math.min(ev.maxMinutes, Math.ceil((ev.windowEnd.getTime() - ev.at.getTime()) / 60000)) : 0;
+  const maxCost = ev.ruleSet && payMinutes > 0 ? estimateCost(ev.ruleSet, ev.at, payMinutes) : null;
+  const place = [ev.zone?.kind === 'pedestrian' ? t('rule.pedestrian') : ev.zone?.name, ev.district ?? (ev.inCity ? 'Salzburg' : undefined)]
+    .filter(Boolean)
+    .join(' · ');
+  const residentMismatch =
+    settings.residentPermit && !ev.exempt && (ev.status === 'pay' || ev.status === 'disc') && ev.ruleSet?.residentExempt;
 
   return (
     <Card className="status-card">
@@ -112,50 +146,54 @@ export function StatusCard({ ev, customTime, compact }: { ev: Evaluation; custom
         <span className="status-icon"><Icon name={ev.status} size={28} /></span>
         <div>
           <div className="status-title">{t(`status.${ev.status}`)}</div>
-          <div className="status-zone">{ev.zone?.name ?? (ev.inCity ? 'Stadt Salzburg' : '')}</div>
+          <div className="status-zone">{place}</div>
         </div>
       </div>
       {customTime && <p className="muted small">{formatWhen(lang, ev.at)}</p>}
-      <p className="status-desc">{ev.exempt === 'disability' ? t('now.exemptDisability') : t(`desc.${ev.status}`)}</p>
+      <p className="status-desc">
+        {ev.exempt === 'disability'
+          ? t('now.exemptDisability')
+          : ev.exempt === 'resident'
+            ? t('now.exemptResident', { zone: settings.residentZone })
+            : t(`desc.${ev.status}`)}
+      </p>
 
       {!compact && (
         <div className="rows">
+          {ev.ruleSet && ev.zone?.kind !== 'pedestrian' && <Row label={t('now.zoneType')} value={t(ev.ruleSet.labelKey)} />}
           {ev.maxMinutes && ev.status !== 'free' && <Row label={t('now.maxDuration')} value={`${ev.maxMinutes / 60} h`} />}
-          {ev.windowEnd && ev.status !== 'free' && <Row label={t('now.until')} value={formatWhen(lang, ev.windowEnd, ev.at)} />}
+          {ev.windowEnd && (ev.status === 'pay' || ev.status === 'disc') && <Row label={t('now.until')} value={formatWhen(lang, ev.windowEnd, ev.at)} />}
           {(ev.status === 'pay' || ev.status === 'disc') && (
             <Row label={t('now.leaveBy')} value={ev.deadline ? formatTime(lang, ev.deadline) : t('now.noDeadline')} />
           )}
-          {ev.rawStatus === 'pay' && ev.perHalfHour !== undefined && <Row label={t('now.tariff')} value={t('now.tariffValue', { half: halfStr, hour: hourStr })} />}
-          {maxCost !== null && ev.status === 'pay' && <Row label={t('now.costMax', { min: ev.maxMinutes! })} value={`${formatMoney(lang, maxCost)} €`} />}
-          {ev.next && (
+          {ev.status === 'pay' && ev.perHalfHour !== undefined && <Row label={t('now.tariff')} value={t('now.tariffValue', { half: halfStr, hour: hourStr })} />}
+          {maxCost !== null && <Row label={t('now.costMax', { min: payMinutes })} value={`${formatMoney(lang, maxCost)} €`} />}
+          {ev.status === 'pay' && <MachineHint point={point} />}
+          {ev.next && !ev.exempt && ev.next.kind !== 'no_parking' && (
             <Row label={t('now.next')} value={t('now.nextAt', { status: t(`status.${ev.next.kind}`), when: formatWhen(lang, ev.next.at, ev.at) })} />
           )}
+          {ev.residentZone && <Row label={t('now.residentZone')} value={ev.residentZone} />}
         </div>
       )}
 
-      {ev.overlays.map((o) => (
-        <div key={o.id} className="notice warn">
+      {ev.altstadtAccess && (
+        <div className="notice warn">
           <strong>{t('now.overlayAltstadt')}</strong>
-          <span>{o.note}</span>
-        </div>
-      ))}
-      {ev.zone?.note && ev.zone.kind !== 'altstadt_access' && (
-        <div className="notice"><strong>{t('now.zoneNote')}:</strong> <span>{ev.zone.note}</span></div>
-      )}
-      {settings.residentPermit && ev.ruleSet?.residentExempt && (ev.rawStatus === 'pay' || ev.rawStatus === 'disc') && (
-        <div className="notice ok">
-          <span>{t('now.residentHint', { zone: settings.residentZone || '?' })}</span>
-          {settings.residentZone && (
-            <a href={`https://www.stadt-salzburg.at/parkzone/${encodeURIComponent(settings.residentZone)}`} target="_blank" rel="noreferrer">
-              {t('now.residentPlan')} <Icon name="external" size={14} />
-            </a>
-          )}
+          <span>{t('now.overlayAltstadtText')}</span>
         </div>
       )}
-      {ev.zone && !ev.zone.verified && <p className="muted small">{t('now.unverifiedGeo')}</p>}
+      {residentMismatch && (
+        <div className="notice">
+          {ev.zone?.noResident ? t('now.residentNotValid') : t('now.residentOtherZone', { zone: settings.residentZone || '–' })}
+        </div>
+      )}
+      {(ev.status === 'unregulated' || ev.zone) && <p className="muted small">{t('now.signsFirst')}</p>}
     </Card>
   );
 }
+
+/** „09:00“ → „9“, „09:30“ → „9:30“ */
+const shortTime = (hhmm: string) => hhmm.replace(/^0/, '').replace(/:00$/, '');
 
 export function ScheduleCard({ rs }: { rs: RuleSet }) {
   const { t } = useApp();
@@ -173,7 +211,7 @@ export function ScheduleCard({ rs }: { rs: RuleSet }) {
                 {wins.length === 0 && <span className="pill" style={{ ['--status' as string]: STATUS_COLOR.free }}>{t('status.free')}</span>}
                 {wins.map((w, i) => (
                   <span key={i} className="pill" style={{ ['--status' as string]: STATUS_COLOR[w.kind] }}>
-                    {w.from === '00:00' && w.to === '24:00' ? '0–24' : `${w.from}–${w.to}`} · {t(`status.${w.kind}`)}
+                    {shortTime(w.from)}–{shortTime(w.to)} · {t(`status.${w.kind}`)}
                     {w.maxMinutes ? ` · max ${w.maxMinutes / 60} h` : ''}
                   </span>
                 ))}
@@ -185,4 +223,3 @@ export function ScheduleCard({ rs }: { rs: RuleSet }) {
     </Card>
   );
 }
-

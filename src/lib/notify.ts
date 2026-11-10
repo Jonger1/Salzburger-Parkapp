@@ -1,13 +1,6 @@
-import { formatTime, translate, type Lang } from './i18n';
-import type { Session, Settings } from './store';
-
-export interface Reminder {
-  id: string;
-  at: number;
-  title: string;
-  body: string;
-  tag: string;
-}
+import type { Lang } from './i18n';
+import type { Reminder } from './session';
+import type { Session } from './store';
 
 export const VAPID_PUBLIC_KEY: string = import.meta.env.VITE_VAPID_PUBLIC_KEY ?? '';
 
@@ -24,7 +17,11 @@ export async function requestPermission(): Promise<NotificationPermission | 'uns
 export async function showNotification(title: string, body: string, tag?: string): Promise<void> {
   if (!notificationsSupported() || Notification.permission !== 'granted') return;
   try {
-    const reg = await navigator.serviceWorker.ready;
+    // `ready` löst nie auf, wenn kein Service Worker registriert ist (z. B. im Dev-Modus)
+    const reg = await Promise.race([
+      navigator.serviceWorker.ready,
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('no service worker')), 3000)),
+    ]);
     await reg.showNotification(title, {
       body,
       tag,
@@ -33,56 +30,12 @@ export async function showNotification(title: string, body: string, tag?: string
       data: { url: '/' },
     });
   } catch {
-    new Notification(title, { body, tag });
-  }
-}
-
-/** Wann läuft die Parkberechtigung ab? (Ticket bzw. Höchstparkdauer, gedeckelt durch das Fensterende) */
-export function sessionExpiry(s: Session): number | null {
-  if (s.status !== 'pay' && s.status !== 'disc') return null;
-  const candidates = [s.maxDeadline ?? undefined, s.status === 'pay' ? s.ticketUntil : undefined].filter(
-    (x): x is number => typeof x === 'number',
-  );
-  if (!candidates.length) return null;
-  const expiry = Math.min(...candidates);
-  if (s.windowEnd && expiry >= s.windowEnd) return null;
-  return expiry;
-}
-
-export function buildReminders(s: Session, settings: Settings, lang: Lang): Reminder[] {
-  const t = (k: string, v?: Record<string, string | number>) => translate(lang, k, v);
-  const out: Reminder[] = [];
-  const now = Date.now();
-  const expiry = sessionExpiry(s);
-  if (expiry) {
-    const what = s.status === 'pay' && s.ticketUntil && s.ticketUntil <= expiry ? t('notif.ticket') : t('notif.maxDuration');
-    for (const lead of settings.leadMinutes) {
-      out.push({
-        id: `${s.id}-lead-${lead}`,
-        at: expiry - lead * 60000,
-        title: t('notif.leadTitle', { n: lead }),
-        body: t('notif.leadBody', { what, time: formatTime(lang, new Date(expiry)) }),
-        tag: `lead-${lead}`,
-      });
-    }
-    if (settings.notifyAtExpiry) {
-      out.push({ id: `${s.id}-expired`, at: expiry, title: t('notif.expiredTitle'), body: t('notif.expiredBody'), tag: 'expired' });
+    try {
+      new Notification(title, { body, tag });
+    } catch {
+      /* Android erlaubt Benachrichtigungen nur über den Service Worker */
     }
   }
-  // Auto bleibt über das Fensterende hinaus stehen → vor dem nächsten regulierten Zeitraum erinnern
-  if (settings.notifyPayStart && s.nextAt && s.nextKind && s.nextKind !== 'no_parking' && (!expiry || s.status === 'free')) {
-    out.push({
-      id: `${s.id}-paystart`,
-      at: s.nextAt - settings.payStartLead * 60000,
-      title: t('notif.payStartTitle'),
-      body: t('notif.payStartBody', {
-        time: formatTime(lang, new Date(s.nextAt)),
-        what: s.nextKind === 'pay' ? t('status.pay') : t('status.disc'),
-      }),
-      tag: 'paystart',
-    });
-  }
-  return out.filter((r) => r.at > now - 60000);
 }
 
 // ---------- lokale Timer (solange die App läuft) ----------

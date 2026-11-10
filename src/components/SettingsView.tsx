@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useApp } from '../AppContext';
 import { notificationsSupported, requestPermission, serverPushAvailable, showNotification } from '../lib/notify';
-import { DEFAULT_SETTINGS, useSettings } from '../lib/store';
+import { useSettings } from '../lib/store';
+import { RESIDENT_ZONE_NAMES } from '../data/zones';
 import { Card, Segmented, Toggle } from './ui';
 
 const LEAD_OPTIONS = [30, 15, 10, 5];
@@ -103,7 +104,13 @@ export function SettingsView() {
         {settings.residentPermit && (
           <label className="field">
             <span className="muted small">{t('settings.residentZone')}</span>
-            <input value={settings.residentZone} maxLength={4} onChange={(e) => updateSettings({ residentZone: e.target.value.toUpperCase().trim() })} />
+            <select value={RESIDENT_ZONE_NAMES.includes(settings.residentZone) ? settings.residentZone : ''} onChange={(e) => updateSettings({ residentZone: e.target.value })}>
+              <option value="">{t('settings.residentZoneChoose')}</option>
+              {RESIDENT_ZONE_NAMES.map((z) => (
+                <option key={z} value={z}>{z}</option>
+              ))}
+            </select>
+            <span className="muted small">{t('settings.residentZoneHint')}</span>
           </label>
         )}
         <Toggle label={t('settings.disability')} checked={settings.disabilityPermit} onChange={(v) => updateSettings({ disabilityPermit: v })} />
@@ -128,9 +135,9 @@ export function SettingsView() {
 
       <Card>
         <h3>{t('settings.data')}</h3>
-        <button className="btn danger" onClick={() => { reset(); updateSettings({ lang: DEFAULT_SETTINGS.lang }); }}>{t('settings.reset')}</button>
+        <button className="btn danger" onClick={() => confirm(t('settings.resetConfirm')) && reset()}>{t('settings.reset')}</button>
       </Card>
-      <p className="muted small center">v1.0 · © OpenStreetMap-Mitwirkende</p>
+      <p className="muted small center">v1.1 · {t('settings.credits')}</p>
     </div>
   );
 }
